@@ -1,7 +1,13 @@
 """Test cases for the model."""
 
-import pytest
+from io import BytesIO
+from unittest.mock import Mock
+
 import numpy as np
+import pytest
+from PIL import Image, UnidentifiedImageError
+
+import model as model_module
 from model import preprocess_img, predict_result  # Adjust based on your structure
 
 # Basic Tests
@@ -42,14 +48,41 @@ def test_invalid_image_path():
     with pytest.raises(FileNotFoundError):
         preprocess_img("invalid/path/to/image.jpeg")
 
-def test_image_shape_on_prediction():
-    """Test the prediction output shape."""
-    img_path = "test_images/5/Sign 5 (86).jpeg"  # Ensure the path is correct
-    processed_img = preprocess_img(img_path)
+@pytest.mark.parametrize("scores, expected", [
+    ([0.8, 0.1, 0.1], 0),
+    ([0.1, 0.2, 0.7], 2),
+    ([0.5, 0.5, 0.0], 0),
+])
+def test_predict_result_selects_highest_score(monkeypatch, scores, expected):
+    """Select the highest score, taking the first index when scores tie."""
+    mock_model = Mock()
+    mock_model.predict.return_value = np.array([scores])
+    monkeypatch.setattr(model_module, "model", mock_model)
+    image_batch = np.zeros((1, 224, 224, 3))
 
-    # Ensure that the prediction output is an integer
-    prediction = predict_result(processed_img)
-    assert isinstance(prediction, (int, np.integer)), "The prediction should be an integer"
+    assert predict_result(image_batch) == expected
+    mock_model.predict.assert_called_once_with(image_batch)
+
+
+@pytest.mark.parametrize("color", [(0, 0, 0), (255, 255, 255), (64, 128, 192)])
+def test_preprocess_known_pixels(color):
+    """Resize RGB uploads and preserve channel order while normalizing pixels."""
+    image_data = BytesIO()
+    Image.new("RGB", (40, 60), color=color).save(image_data, format="PNG")
+    image_data.seek(0)
+
+    processed = preprocess_img(image_data)
+
+    assert processed.shape == (1, 224, 224, 3)
+    expected = np.broadcast_to(np.array(color) / 255.0, processed.shape)
+    np.testing.assert_allclose(processed, expected)
+
+
+@pytest.mark.parametrize("contents", [b"", b"not an image"])
+def test_preprocess_rejects_invalid_image(contents):
+    """Reject empty uploads and bytes that do not represent an image."""
+    with pytest.raises(UnidentifiedImageError):
+        preprocess_img(BytesIO(contents))
 
 def test_model_predictions_consistency():
     """Test that predictions for the same input are consistent."""
