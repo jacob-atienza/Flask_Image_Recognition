@@ -1,7 +1,11 @@
+"""Test cases for happy path scenarios."""
+
+# Keep repeated upload requests and assertions so each test is self-contained.
+# pylint: disable=duplicate-code
+
 # test_acceptance_happy.py
 
 from io import BytesIO
-import pytest
 
 def test_acceptance_successful_upload(client):
     """
@@ -29,7 +33,8 @@ def test_acceptance_successful_upload(client):
 def test_acceptance_valid_large_image(client):
     """
     Test Case: Upload of a Valid Large Image File
-    - Purpose: Check if the system accepts large but valid image files without errors and still provides predictions.
+    - Purpose: Check if the system accepts large but valid image files
+    without errors and still provides predictions.
     - Method:
         - Create a mock large image file by repeating mock image data multiple times.
         - Simulate a POST request to the `/prediction` route with the file.
