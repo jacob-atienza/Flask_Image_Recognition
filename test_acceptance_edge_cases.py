@@ -1,146 +1,69 @@
-"""Test cases for acceptance and edge cases."""
-# test_acceptance_edge_cases.py
+"""Verify image upload edge cases with valid images and meaningful results."""
 
 from io import BytesIO
+import re
+from unittest.mock import Mock
 
-# Helper function for concurrent image uploads
-def upload_image(client, img_data):
-    """
-    Helper function to upload an image within a thread.
-    - Purpose: Enables concurrent uploads for testing multithreaded scenarios.
-    - Usage: Called in separate threads during concurrent tests.
-    """
-    client.post(
-        "/prediction",
-        data={"file": (img_data, img_data.name)},
-        content_type="multipart/form-data"
+import numpy as np
+import pytest
+from PIL import Image
+
+import app as app_module
+
+
+def _image_data(image_format, size, color):
+    """Create an RGB upload without optional metadata."""
+    image_data = BytesIO()
+    Image.new("RGB", size, color=color).save(
+        image_data, format=image_format, compress_level=0
     )
+    image_data.seek(0)
+    return image_data
 
-# 1. Edge Case: Uploading a Large Image File
-def test_edge_case_large_image_upload(client):
-    """
-    Test uploading a large image to see how the system handles large file sizes.
-    - Scenario: Simulates a file upload with a large image (e.g., 10 MB).
-    - Expected Behavior: System should handle the file and return a valid prediction response.
-    """
-    large_img_data = BytesIO(b"large_image_data" * 10**6)  # Simulating a large image
-    large_img_data.name = "large_image.jpg"
+
+@pytest.mark.parametrize("image_format, size, headers", [
+    pytest.param("PNG", (2048, 2048), {}, id="valid-image-over-10-MB"),
+    pytest.param("PNG", (80, 60), {}, id="image-without-optional-metadata"),
+    pytest.param("WEBP", (80, 60), {}, id="actual-webp-image"),
+    pytest.param(
+        "PNG", (80, 60), {"X-Unexpected-Header": "value"}, id="unexpected-header"
+    ),
+])
+def test_valid_image_upload_edge_cases(client, image_format, size, headers):
+    """Return a digit for valid large, metadata-free, WebP, and header cases."""
+    image_data = _image_data(image_format, size, (64, 128, 192))
+    if size == (2048, 2048):
+        assert image_data.getbuffer().nbytes > 10 * 1024 * 1024
 
     response = client.post(
         "/prediction",
-        data={"file": (large_img_data, large_img_data.name)},
-        content_type="multipart/form-data"
-    )
-
-    # Assert that the system can process large image files
-    assert b"Prediction" in response.data  # Adjust based on actual prediction content
-
-# 2. Edge Case: Uploading an Image with Missing or Incorrect Metadata
-def test_edge_case_invalid_metadata(client):
-    """
-    Test uploading an image with missing or incorrect metadata.
-    - Scenario: Upload an image without any metadata or with invalid metadata.
-    - Expected Behavior: System processes the image regardless of metadata issues.
-    """
-    img_data = BytesIO(b"image_with_no_metadata")
-    img_data.name = "image_no_metadata.jpg"
-
-    response = client.post(
-        "/prediction",
-        data={"file": (img_data, img_data.name)},
-        content_type="multipart/form-data"
-    )
-
-    # Assert that the system processes the image even without metadata
-    assert b"Prediction" in response.data  # Adjust based on actual behavior
-
-# 3. Edge Case: Uploading an Image with Non-Standard File Extensions
-def test_edge_case_non_standard_image_extensions(client):
-    """
-    Test uploading images with non-standard file extensions.
-    - Scenario: Upload a file with an uncommon extension, e.g., .webp.
-    - Expected Behavior: System processes the file as a valid image.
-    """
-    img_data = BytesIO(b"valid_image_data")
-    img_data.name = "non_standard_image.webp"  # Non-standard extension
-
-    response = client.post(
-        "/prediction",
-        data={"file": (img_data, img_data.name)},
-        content_type="multipart/form-data"
-    )
-
-    # Ensure the system processes the file despite the non-standard extension
-    assert b"Prediction" in response.data  # Adjust based on actual prediction content
-
-# 4. Edge Case: Uploading a Sequence of Images for Multi-Step Processing
-def test_edge_case_sequential_image_uploads(client):
-    """
-    Test uploading a sequence of images that trigger multi-step processing.
-    - Scenario: Simulate sequential uploads of multiple images.
-    - Expected Behavior: Each upload should trigger a separate valid prediction response.
-    """
-    img_data1 = BytesIO(b"first_image_data")
-    img_data1.name = "first_image.jpg"
-
-    img_data2 = BytesIO(b"second_image_data")
-    img_data2.name = "second_image.jpg"
-
-    # First upload
-    response1 = client.post(
-        "/prediction",
-        data={"file": (img_data1, img_data1.name)},
-        content_type="multipart/form-data"
-    )
-
-    # Second upload
-    response2 = client.post(
-        "/prediction",
-        data={"file": (img_data2, img_data2.name)},
-        content_type="multipart/form-data"
-    )
-
-    # Ensure that each upload processed correctly
-    assert b"Prediction" in response1.data
-    assert b"Prediction" in response2.data
-
-# 5. Edge Case: Uploading with Unexpected Headers
-def test_edge_case_unexpected_headers(client):
-    """
-    Test uploading an image with unexpected headers.
-    - Scenario: Simulate sending headers not expected by the system.
-    - Expected Behavior: System should still process the file without errors.
-    """
-    img_data = BytesIO(b"valid_image_data")
-    img_data.name = "unexpected_headers_image.jpg"
-
-    # Simulate uploading with unexpected headers
-    response = client.post(
-        "/prediction",
-        data={"file": (img_data, img_data.name)},
+        data={"file": (image_data, f"image.{image_format.lower()}")},
         content_type="multipart/form-data",
-        headers={"X-Unexpected-Header": "value"}
+        headers=headers,
     )
 
-    # Assert that the upload is still processed correctly despite the unexpected header
-    assert b"Prediction" in response.data
+    assert response.status_code == 200
+    assert b"File cannot be processed." not in response.data
+    assert re.search(rb'<h2[^>]*>\s*[0-9]\s*</h2>', response.data)
 
-# 6. Edge Case: Uploading an Image with HTTP/2
-def test_edge_case_upload_over_http2(client):
-    """
-    Test uploading an image using HTTP/2 protocol.
-    - Scenario: Simulate uploading an image over HTTP/2 protocol.
-    - Expected Behavior: System processes the upload as it would over HTTP/1.1.
-    """
-    img_data = BytesIO(b"valid_image_data")
-    img_data.name = "http2_image.jpg"
 
-    # Simulate uploading the image using HTTP/2 (client would need to support it)
-    response = client.post(
-        "/prediction",
-        data={"file": (img_data, img_data.name)},
-        content_type="multipart/form-data"
-    )
+def test_sequential_uploads_use_each_image(client, monkeypatch):
+    """Preprocess each upload separately and display its own prediction."""
+    predictor = Mock(side_effect=[2, 7])
+    monkeypatch.setattr(app_module, "predict_result", predictor)
 
-    # Ensure that the image upload works successfully over HTTP/2
-    assert b"Prediction" in response.data
+    for color, expected in [((0, 0, 0), 2), ((255, 255, 255), 7)]:
+        response = client.post(
+            "/prediction",
+            data={"file": (_image_data("PNG", (80, 60), color), "image.png")},
+            content_type="multipart/form-data",
+        )
+
+        assert response.status_code == 200
+        assert re.search(rb'<h2[^>]*>\s*%d\s*</h2>' % expected, response.data)
+
+    assert predictor.call_count == 2
+    for call, expected_pixel in zip(predictor.call_args_list, [0.0, 1.0]):
+        batch = call.args[0]
+        assert batch.shape == (1, 224, 224, 3)
+        np.testing.assert_allclose(batch, expected_pixel)
