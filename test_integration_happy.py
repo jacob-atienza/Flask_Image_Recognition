@@ -1,8 +1,5 @@
 """Test cases for integration of the happy path scenarios."""
 
-# Keep repeated upload requests and assertions so each test is self-contained.
-# pylint: disable=duplicate-code
-
 # test_integration_happy.py
 
 from io import BytesIO
