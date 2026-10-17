@@ -2,6 +2,8 @@
 
 # test_integration_sad.py
 
+from io import BytesIO
+
 def test_missing_file(client):
     """Test the prediction route with a missing file."""
     response = client.post("/prediction", data={}, content_type="multipart/form-data")
@@ -13,7 +15,7 @@ def test_invalid_file_type(client):
     # Simulate a POST request with an invalid file type (e.g., a text file)
     response = client.post(
         "/prediction",
-        data={"file": ("invalid_file.txt", b"Invalid content")},
+        data={"file": (BytesIO(b"Invalid content"), "invalid_file.txt")},
         content_type="multipart/form-data"
     )
     assert response.status_code == 200
@@ -24,7 +26,7 @@ def test_empty_file(client):
     # Simulate a POST request with an empty file
     response = client.post(
         "/prediction",
-        data={"file": ("empty_file.jpg", b"")},
+        data={"file": (BytesIO(b""), "empty_file.jpg")},
         content_type="multipart/form-data"
     )
     assert response.status_code == 200
