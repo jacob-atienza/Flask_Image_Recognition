@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   test-and-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -19,7 +19,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
@@ -28,7 +28,7 @@ jobs:
           pip install pytest pytest-cov
 
       - name: Run tests with coverage
-        run: pytest test_model.py --cov=. --cov-report=xml
+        run: pytest --cov=. --cov-report=xml
 
       - name: SonarQube Cloud scan
         uses: SonarSource/sonarqube-scan-action@v6
